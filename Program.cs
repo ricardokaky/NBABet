@@ -495,11 +495,11 @@ namespace NBABet
                 return false;
             }
 
+            jogador.Time = Browser.FindElement(By.XPath("//a[@class='AnchorLink clr-black']")).GetAttribute("innerText");
+
             ProcessarStats(jogador);
 
             SalvaHistorico(jogador);
-
-            jogador.Time = Browser.FindElement(By.XPath("//a[@class='AnchorLink clr-black']")).GetAttribute("innerText");
 
             return true;
         }
@@ -604,10 +604,11 @@ namespace NBABet
                         continue;
                     }
 
-                    // Remove FG%, 3P% e FT%
+                    // Remove RESULT FG%, 3P% e FT%
+                    lstNodes.RemoveAt(2);
+                    lstNodes.RemoveAt(4);
                     lstNodes.RemoveAt(5);
                     lstNodes.RemoveAt(6);
-                    lstNodes.RemoveAt(7);
 
                     var partida = ProcessarPartida(lstNodes);
 
@@ -618,6 +619,28 @@ namespace NBABet
 
                     jogador.Historico.Partidas.Add(partida);
                 }
+
+                int anoAnterior = DateTime.Now.Year - 1;
+                int indexVirada = -1;
+
+                for (int i = 0; i < jogador.Historico.Partidas.Count; i++)
+                {
+                    var data = jogador.Historico.Partidas[i].Data;
+
+                    if (indexVirada > -1)
+                    {
+                        jogador.Historico.Partidas[i].Data = data.Replace(DateTime.Now.Year.ToString(), anoAnterior.ToString());
+                        continue;
+                    }
+
+                    /// Verifica á partir de quando o jogo é do ano anterior
+                    if (i > 0 && Convert.ToInt32(data.Substring(5, 2)) > Convert.ToInt32(jogador.Historico.Partidas[i-1].Data.Substring(5, 2)))
+                    {
+                        indexVirada = i;
+                    }
+                }
+
+                jogador.Historico.Partidas.OrderByDescending(x => x.Data);
             }
             catch (Exception ex)
             {
@@ -637,9 +660,8 @@ namespace NBABet
             {
                 var dicStats = new Dictionary<string, string>()
                 {
-                    { "Data", null },
+                    { "auxData", null },
                     { "auxAdversario", null },
-                    { "Resultado", null },
                     { "Minutos", null },
                     { "auxFieldGoals", null },
                     { "auxCestas3", null },
@@ -660,10 +682,6 @@ namespace NBABet
                     if (i == 0)
                     {
                         text = text.Substring(text.IndexOf(" ") + 1);
-                    }
-                    else if (i == 2)
-                    {
-                        text = text.Insert(1, " ");
                     }
 
                     dicStats[dicStats.ElementAt(i).Key] = text;
@@ -686,7 +704,20 @@ namespace NBABet
         {
             int idJogador = VerificaInsereJogador(jogador);
 
-            foreach (PartidaJogador historico in jogador.Historico.Partidas)
+            var ultimoJogo = BancoDados.ConsultaString("select Data from HistoricoJogador where IdJogador = @IdJogador order by Data desc limit 1", new Dictionary<string, object> { { "@IdJogador", idJogador } });
+
+            List<PartidaJogador> partidas;
+
+            if (string.IsNullOrEmpty(ultimoJogo))
+            {
+                partidas = jogador.Historico.Partidas;
+            }
+            else
+            {
+                partidas = jogador.Historico.Partidas.Where(x => DateTime.Parse(x.Data) > DateTime.Parse(ultimoJogo)).ToList();
+            }
+
+            foreach (PartidaJogador historico in partidas)
             {
                 var parametros = new Dictionary<string, object>()
                 {
@@ -722,17 +753,14 @@ namespace NBABet
         {
             int idJogador = VerificaInsereJogador(jogador);
 
-            var drHistorico = BancoDados.ConsultaTabela("select * from HistoricoJogador where IdJogador = @IdJogador", new Dictionary<string, object> { { "@IdJogador", idJogador } });
-
             jogador.Historico = new HistoricoJogador();
             jogador.Historico.Partidas.Clear();
 
-            while (drHistorico.Read())
-            {
-                jogador.Historico.Partidas.Add(new PartidaJogador(drHistorico["Data"], drHistorico["Adversario"], drHistorico["Minutos"], drHistorico["EmCasa"], drHistorico["FieldGoals"], drHistorico["FieldGoalsTentativas"],
-                    drHistorico["Cestas3"], drHistorico["Cestas3Tentativas"], drHistorico["LancesLivres"], drHistorico["LancesLivresTentativas"], drHistorico["Cestas2"], drHistorico["Cestas2Tentativas"], drHistorico["Rebotes"],
-                    drHistorico["Assistencias"], drHistorico["Bloqueios"], drHistorico["Roubos"], drHistorico["Faltas"], drHistorico["InversoesPosse"], drHistorico["Pontos"]));
-            }
+            jogador.Historico.Partidas.AddRange(BancoDados.ConsultaTabela("select Data, Adversario, Minutos, EmCasa, FieldGoals, FieldGoalsTentativas, Cestas3, Cestas3Tentativas, LancesLivres, LancesLivresTentativas, Cestas2, " +
+                                                                            "Cestas2Tentativas, Rebotes, Assistencias, Bloqueios, Roubos, Faltas, InversoesPosse, Pontos from HistoricoJogador where IdJogador = @IdJogador",
+                    x => new PartidaJogador(x.GetString(0), x.GetString(1), x.GetInt32(2), x.GetBoolean(3), x.GetInt32(4), x.GetInt32(5), x.GetInt32(6), x.GetInt32(7), x.GetInt32(8), x.GetInt32(9), x.GetInt32(10), x.GetInt32(11),
+                                            x.GetInt32(12), x.GetInt32(13), x.GetInt32(14), x.GetInt32(15), x.GetInt32(16), x.GetInt32(17), x.GetInt32(18)),
+                new Dictionary<string, object> { { "@IdJogador", idJogador } }));
 
             jogador.Historico.Partidas.OrderByDescending(x => x.Data);
         }
@@ -744,7 +772,7 @@ namespace NBABet
         /// <returns>Id do jogador</returns>
         private static int VerificaInsereJogador(Jogador jogador)
         {
-            int? idJogador = BancoDados.ConsultaInt("select Id from Jogador where Nome = @Nome", new Dictionary<string, object> { { "@Nome", jogador.Nome } });
+            long? idJogador = BancoDados.ConsultaInt("select Id from Jogador where Nome = @Nome", new Dictionary<string, object> { { "@Nome", jogador.Nome } });
 
             if (idJogador == null)
             {
@@ -1023,7 +1051,7 @@ namespace NBABet
         /// <returns>Sigla do time</returns>
         private static string SiglaTime(string time)
         {
-            string sigla = BancoDados.ConsultaString("select Sigla from SiglaTime where NomeBet = @NomeBet", new Dictionary<string, object> { { "@NomeBet", time } });
+            string sigla = BancoDados.ConsultaString("select Sigla from SiglaTime where Nome = @Nome", new Dictionary<string, object> { { "@Nome", time.ToUpper() } });
 
             if (string.IsNullOrEmpty(sigla))
             {

@@ -1,15 +1,16 @@
 ﻿using Microsoft.Data.Sqlite;
 using System;
 using System.Collections.Generic;
-using System.IO;
 
 namespace NBABet
 {
     public static class BancoDados
     {
+        static string connectionString = "C:\\Users\\ricardo.queiroz\\source\\repos\\NBABet\\Banco_Dados\\NBAStats.db";
+
         public static string ConsultaString(string instrucao, Dictionary<string, object> parametros = null)
         {
-            using (var connection = new SqliteConnection("Data Source=Banco_Dados\\NBAStats.db"))
+            using (var connection = new SqliteConnection($"Data Source={connectionString}"))
             {
                 connection.Open();
 
@@ -30,9 +31,9 @@ namespace NBABet
             }
         }
 
-        public static int? ConsultaInt(string instrucao, Dictionary<string, object> parametros = null)
+        public static long? ConsultaInt(string instrucao, Dictionary<string, object> parametros = null)
         {
-            using (var connection = new SqliteConnection("Data Source=Banco_Dados\\NBAStats.db"))
+            using (var connection = new SqliteConnection($"Data Source={connectionString}"))
             {
                 connection.Open();
 
@@ -48,14 +49,16 @@ namespace NBABet
                         }
                     }
 
-                    return (int?)command.ExecuteScalar();
+                    return (long?)command.ExecuteScalar();
                 }
             }
         }
 
-        public static SqliteDataReader ConsultaTabela(string instrucao, Dictionary<string, object> parametros = null)
+        public static List<T> ConsultaTabela<T>(string instrucao, Func<SqliteDataReader, T> map, Dictionary<string, object> parametros = null)
         {
-            using (var connection = new SqliteConnection("Data Source=Banco_Dados\\NBAStats.db"))
+            List<T> resultados = new List<T>();
+
+            using (var connection = new SqliteConnection($"Data Source={connectionString}"))
             {
                 connection.Open();
 
@@ -71,16 +74,24 @@ namespace NBABet
                         }
                     }
 
-                    return command.ExecuteReader();
+                    using (var reader = command.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            resultados.Add(map(reader));
+                        }
+                    }
                 }
             }
+
+            return resultados;
         }
 
         public static int Insere(string instrucao, Dictionary<string, object> parametros = null)
         {
             try
             {
-                using (var connection = new SqliteConnection("Data Source=Banco_Dados\\NBAStats.db"))
+                using (var connection = new SqliteConnection($"Data Source={connectionString}"))
                 {
                     connection.Open();
 
